@@ -144,3 +144,40 @@ export function safetyOf(url: string): Safety {
     return 'none'
   }
 }
+
+export interface ConsoleEntry {
+  level: 0 | 1 | 2 | 3
+  message: string
+  source: string
+  line: number
+  at: number
+}
+
+export const CONSOLE_BUFFER_CAP = 200
+export const CONSOLE_ENTRY_MAX_MSG = 2000
+
+/**
+ * Appends a console message immutably, ensuring the message length does not
+ * exceed CONSOLE_ENTRY_MAX_MSG, and dropping the oldest entries when the buffer
+ * reaches cap.
+ */
+export function pushEntry(
+  buf: ConsoleEntry[],
+  e: ConsoleEntry,
+  cap = CONSOLE_BUFFER_CAP
+): ConsoleEntry[] {
+  const sanitizedEntry: ConsoleEntry =
+    e.message.length > CONSOLE_ENTRY_MAX_MSG
+      ? { ...e, message: e.message.slice(0, CONSOLE_ENTRY_MAX_MSG) }
+      : e
+  const next = [...buf, sanitizedEntry]
+  if (next.length > cap) {
+    return next.slice(next.length - cap)
+  }
+  return next
+}
+
+/** Counts entries at error level (level === 3). */
+export function errorCount(buf: ConsoleEntry[]): number {
+  return buf.reduce((acc, e) => (e.level === 3 ? acc + 1 : acc), 0)
+}

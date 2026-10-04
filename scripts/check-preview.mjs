@@ -125,6 +125,86 @@ try {
 check('a .txt file is refused by readBinary', textError instanceof Error)
 check('with a clear reason', /not.*previewable/i.test(textError?.message ?? ''), textError?.message)
 
+/* ---- 5. console buffer helpers (pushEntry & errorCount) ------------------- */
+
+console.log('\nconsole buffer helpers enforce capacity, immutability, and count errors')
+
+const browserOut = path.join(tmp, 'browser.mjs')
+await build({
+  entryPoints: [path.join(root, 'src/shared/browser.ts')],
+  outfile: browserOut,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  logLevel: 'silent'
+})
+const browser = await import(browserOut)
+
+const emptyBuf = []
+const entry1 = { level: 3, message: 'ReferenceError: foo is not defined', source: 'app.js', line: 42, at: 1000 }
+const buf1 = browser.pushEntry(emptyBuf, entry1)
+
+check('pushEntry returns new array', Array.isArray(buf1) && buf1.length === 1)
+check('pushEntry is immutable', emptyBuf.length === 0)
+check('pushed entry contains properties', buf1[0].message === entry1.message && buf1[0].level === 3)
+
+// Message cap at 2000 chars
+const longMsg = 'X'.repeat(3000)
+const longEntry = { level: 2, message: longMsg, source: 'vendor.js', line: 1, at: 1001 }
+const bufWithLong = browser.pushEntry([], longEntry)
+check('message is truncated to 2000 chars', bufWithLong[0].message.length === 2000)
+
+// Cap enforcement and dropping oldest
+let testBuf = []
+for (let i = 0; i < 205; i++) {
+  testBuf = browser.pushEntry(testBuf, {
+    level: (i % 4),
+    message: `Message #${i}`,
+    source: `file${i}.js`,
+    line: i + 1,
+    at: 1000 + i
+  })
+}
+
+check('buffer cap of 200 is enforced', testBuf.length === 200)
+check('oldest entries are dropped', testBuf[0].message === 'Message #5')
+check('newest entry is preserved at end', testBuf[199].message === 'Message #204')
+
+// Custom cap parameter
+let customCapBuf = []
+for (let i = 0; i < 10; i++) {
+  customCapBuf = browser.pushEntry(customCapBuf, {
+    level: 1,
+    message: `Entry ${i}`,
+    source: 's.js',
+    line: i,
+    at: i
+  }, 5)
+}
+check('custom cap parameter is respected', customCapBuf.length === 5 && customCapBuf[0].message === 'Entry 5')
+
+// errorCount
+check('errorCount on empty buffer is 0', browser.errorCount([]) === 0)
+
+const mixedEntries = [
+  { level: 0, message: 'verbose', source: 'a.js', line: 1, at: 1 },
+  { level: 1, message: 'info', source: 'b.js', line: 2, at: 2 },
+  { level: 2, message: 'warning 1', source: 'c.js', line: 3, at: 3 },
+  { level: 3, message: 'error 1', source: 'd.js', line: 4, at: 4 },
+  { level: 2, message: 'warning 2', source: 'e.js', line: 5, at: 5 },
+  { level: 3, message: 'error 2', source: 'f.js', line: 6, at: 6 },
+  { level: 3, message: 'error 3', source: 'g.js', line: 7, at: 7 }
+]
+
+check('errorCount counts only level 3 entries', browser.errorCount(mixedEntries) === 3)
+
+const noErrors = [
+  { level: 0, message: 'verbose', source: 'a.js', line: 1, at: 1 },
+  { level: 1, message: 'info', source: 'b.js', line: 2, at: 2 },
+  { level: 2, message: 'warning', source: 'c.js', line: 3, at: 3 }
+]
+check('errorCount returns 0 when no errors exist', browser.errorCount(noErrors) === 0)
+
 /* ---- done ------------------------------------------------------------------ */
 
 fs.rmSync(tmp, { recursive: true, force: true })
