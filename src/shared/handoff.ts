@@ -40,3 +40,62 @@ export function fenceFor(content: string): string {
   const needed = Math.max(3, maxRun + 1)
   return '`'.repeat(needed)
 }
+
+/**
+ * Collapses 3 or more consecutive identical lines into the first line
+ * followed by `[repeated N more times]`.
+ *
+ * Runs of 1 or 2 identical lines are preserved untouched.
+ */
+export function collapseRepeats(lines: string[]): string[] {
+  if (!lines.length) return []
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const cur = lines[i]
+    let j = i + 1
+    while (j < lines.length && lines[j] === cur) {
+      j += 1
+    }
+    const count = j - i
+    if (count >= 3) {
+      out.push(cur)
+      out.push(`[repeated ${count - 1} more times]`)
+    } else {
+      for (let k = 0; k < count; k += 1) {
+        out.push(cur)
+      }
+    }
+    i = j
+  }
+  return out
+}
+
+/**
+ * Converts xterm buffer lines to cleaned text:
+ * 1. Joins soft-wrapped lines (where `wrapped: true`) into single continuous lines.
+ * 2. Trims trailing blank lines.
+ * 3. Collapses 3+ identical consecutive lines.
+ * 4. Joins the resulting lines with newline.
+ */
+export function linesToText(lines: { text: string; wrapped: boolean }[]): string {
+  if (!lines.length) return ''
+  const unwrapped: string[] = []
+  for (let i = 0; i < lines.length; i += 1) {
+    const item = lines[i]
+    if (i > 0 && item.wrapped) {
+      unwrapped[unwrapped.length - 1] += item.text
+    } else {
+      unwrapped.push(item.text)
+    }
+  }
+
+  // Trim trailing blank lines
+  while (unwrapped.length > 0 && unwrapped[unwrapped.length - 1].trim() === '') {
+    unwrapped.pop()
+  }
+
+  const collapsed = collapseRepeats(unwrapped)
+  return collapsed.join('\n')
+}
+

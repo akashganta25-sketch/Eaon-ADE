@@ -46,7 +46,9 @@ await build({
   logLevel: 'silent'
 })
 
-const { sanitizePaste, fenceFor } = await import(pathToFileURL(bundle).href)
+const { sanitizePaste, fenceFor, collapseRepeats, linesToText } = await import(
+  pathToFileURL(bundle).href
+)
 
 /* ── 1. sanitizePaste ──────────────────────────────────────────────────────── */
 
@@ -92,6 +94,81 @@ eq('content with 2 backticks gets 3 backticks', fenceFor('use ``double backticks
 eq('content with 3 backticks gets 4 backticks', fenceFor('```js\nconsole.log(1)\n```'), '````')
 eq('content with 6 backticks gets 7 backticks', fenceFor('some text `````` more text'), '```````')
 eq('content with 1000 backticks gets 1001 backticks', fenceFor('`'.repeat(1000)), '`'.repeat(1001))
+
+/* ── 5. collapseRepeats ────────────────────────────────────────────────────── */
+
+describe('5. collapseRepeats: identical consecutive lines')
+
+eq('empty array returns empty', JSON.stringify(collapseRepeats([])), JSON.stringify([]))
+eq('single line preserved', JSON.stringify(collapseRepeats(['line 1'])), JSON.stringify(['line 1']))
+eq(
+  'run of exactly 2 identical lines preserved',
+  JSON.stringify(collapseRepeats(['item', 'item'])),
+  JSON.stringify(['item', 'item'])
+)
+eq(
+  'run of exactly 3 identical lines collapsed',
+  JSON.stringify(collapseRepeats(['item', 'item', 'item'])),
+  JSON.stringify(['item', '[repeated 2 more times]'])
+)
+eq(
+  'run of 1000 identical lines collapsed',
+  JSON.stringify(collapseRepeats(Array(1000).fill('spinner'))),
+  JSON.stringify(['spinner', '[repeated 999 more times]'])
+)
+eq(
+  'mixed runs correctly processed',
+  JSON.stringify(collapseRepeats(['a', 'b', 'b', 'b', 'c', 'c', 'd', 'd', 'd', 'd'])),
+  JSON.stringify(['a', 'b', '[repeated 2 more times]', 'c', 'c', 'd', '[repeated 3 more times]'])
+)
+
+/* ── 6. linesToText ────────────────────────────────────────────────────────── */
+
+describe('6. linesToText: soft-wrap joining, trailing blank trim, and repeat collapse')
+
+eq('empty lines array returns empty string', linesToText([]), '')
+eq(
+  'single unwrapped line returns its text',
+  linesToText([{ text: 'const answer = 42', wrapped: false }]),
+  'const answer = 42'
+)
+eq(
+  'joins soft-wrapped lines across columns',
+  linesToText([
+    { text: 'curl https://api.example.com/', wrapped: false },
+    { text: 'v1/resources?status=active', wrapped: true }
+  ]),
+  'curl https://api.example.com/v1/resources?status=active'
+)
+eq(
+  'joins multiple consecutive soft-wrapped segments',
+  linesToText([
+    { text: 'part 1 - ', wrapped: false },
+    { text: 'part 2 - ', wrapped: true },
+    { text: 'part 3', wrapped: true },
+    { text: 'next line', wrapped: false }
+  ]),
+  'part 1 - part 2 - part 3\nnext line'
+)
+eq(
+  'trims trailing blank lines',
+  linesToText([
+    { text: 'output line', wrapped: false },
+    { text: '   ', wrapped: false },
+    { text: '', wrapped: false }
+  ]),
+  'output line'
+)
+eq(
+  'collapses 3+ identical lines in terminal buffer',
+  linesToText([
+    { text: 'loading...', wrapped: false },
+    { text: 'loading...', wrapped: false },
+    { text: 'loading...', wrapped: false },
+    { text: 'done', wrapped: false }
+  ]),
+  'loading...\n[repeated 2 more times]\ndone'
+)
 
 /* ── finish up ────────────────────────────────────────────────────────────── */
 
