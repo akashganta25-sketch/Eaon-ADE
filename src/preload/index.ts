@@ -359,6 +359,14 @@ const api = {
     /** Loopback ports with something listening, for the preview panel's chips. */
     devPorts: (): Promise<number[]> => ipcRenderer.invoke('browser:devPorts'),
     /**
+     * Captures the page of a webview guest by webContentsId to PNG.
+     * Downscales to <= 1600px and returns the local file path.
+     */
+    capture: (
+      webContentsId: number
+    ): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('browser:capture', webContentsId),
+    /**
      * Shortcuts pressed while the page itself had focus.
      *
      * Keys inside a <webview> go to the guest's own process and never reach
