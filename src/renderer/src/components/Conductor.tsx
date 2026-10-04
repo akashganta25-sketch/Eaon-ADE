@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Maximize2, Mic, Minimize2, Radio, SendHorizontal, X } from 'lucide-react'
 import type { Workspace } from '@shared/types'
-import { DEFAULT_INSTRUCTION } from '@shared/handoff'
+import { DEFAULT_INSTRUCTION, isAgentPane } from '@shared/handoff'
 
 import { useStore } from '../store/useStore'
 import { terminals } from '../lib/terminals'
@@ -20,6 +20,8 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const open = useStore((s) => s.conductorOpen)
   const toggle = useStore((s) => s.toggleConductor)
   const notify = useStore((s) => s.notify)
+  const trials = useStore((s) => s.trials)
+
 
   // Mode state
   const [mode, setMode] = useState<ConductorMode>('message')
@@ -109,6 +111,13 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
     if (e.key === 'Escape') toggle()
   }
 
+  const trial = trials.find((t) => t.workspaceId === workspace.id)
+  const member = trial?.members.find((m) => m.paneId === fromPaneId)
+  const hasChangesSource = Boolean(member)
+  const targetPane = workspace.panes.find((p) => p.id === toPaneId)
+  const targetIsAgent = isAgentPane(targetPane)
+  const effectivePressEnter = targetIsAgent && pressEnter
+
   return (
     <div className="conductor" data-expanded={expanded || mode === 'handoff'} ref={rootRef}>
       <div className="conductor-row">
@@ -135,7 +144,7 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
           </button>
         </div>
 
-        {mode === 'message' ? (
+        {mode === 'message' && (
           <>
             <button className="conductor-target" onClick={() => setPickerOpen((v) => !v)}>
               {targetLabel()}
@@ -183,14 +192,9 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
               <SendHorizontal size={14} />
             </button>
           </>
-        ) : (
-          <div className="conductor-handoff-state-holder" style={{ display: 'none' }}>
-            {/* References state to ensure clean TypeScript compilation in Step 6.7 prior to Step 6.8 controls */}
-            <span>{fromPaneId}{setFromPaneId.name}{contentKind}{setContentKind.name}{lineCount}{setLineCount.name}{toPaneId}{setToPaneId.name}{instruction}{setInstruction.name}{String(pressEnter)}{setPressEnter.name}</span>
-          </div>
         )}
 
-        <button className="icon-btn" onClick={toggle} title="Close" aria-label="Close conductor">
+        <button className="icon-btn conductor-close" onClick={toggle} title="Close" aria-label="Close conductor">
           <X size={14} />
         </button>
       </div>
@@ -206,6 +210,129 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
           aria-label="Message to send"
         />
       )}
+
+      {mode === 'handoff' && (
+        <div className="conductor-handoff-form">
+          <div className="conductor-form-row">
+            <label className="conductor-field-label">
+              <span className="conductor-label-text">From:</span>
+              <select
+                className="conductor-select"
+                value={fromPaneId}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setFromPaneId(next)
+                  if (toPaneId === next) {
+                    const other = workspace.panes.find((p) => p.id !== next && p.status !== 'exited')
+                    if (other) setToPaneId(other.id)
+                  }
+                }}
+              >
+                {workspace.panes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.status === 'exited' ? '(exited)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="conductor-field-label">
+              <span className="conductor-label-text">Content:</span>
+              <select
+                className="conductor-select"
+                value={contentKind}
+                onChange={(e) => setContentKind(e.target.value as 'output' | 'changes')}
+              >
+                <option value="output">Recent output</option>
+                <option
+                  value="changes"
+                  disabled={!hasChangesSource}
+                  title={!hasChangesSource ? 'Changes source is only available for trial attempt panes' : undefined}
+                >
+                  Trial changes {!hasChangesSource ? '(trial attempts only)' : ''}
+                </option>
+              </select>
+            </label>
+
+            {contentKind === 'output' && (
+              <label className="conductor-field-label">
+                <span className="conductor-label-text">Lines:</span>
+                <input
+                  type="number"
+                  className="conductor-number-input"
+                  min={10}
+                  max={400}
+                  value={lineCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    if (!Number.isNaN(val)) {
+                      setLineCount(Math.min(400, Math.max(10, val)))
+                    }
+                  }}
+                />
+              </label>
+            )}
+
+            <label className="conductor-field-label">
+              <span className="conductor-label-text">To:</span>
+              <select
+                className="conductor-select"
+                value={toPaneId}
+                onChange={(e) => setToPaneId(e.target.value)}
+              >
+                <option value="" disabled>Select target pane…</option>
+                {workspace.panes.map((p) => {
+                  const isSource = p.id === fromPaneId
+                  const isExited = p.status === 'exited'
+                  const disabled = isSource || isExited
+                  let note = ''
+                  if (isSource) note = ' (source)'
+                  else if (isExited) note = ' (exited)'
+                  return (
+                    <option key={p.id} value={p.id} disabled={disabled}>
+                      {p.name}{note}
+                    </option>
+                  )
+                })}
+              </select>
+            </label>
+          </div>
+
+          <div className="conductor-form-row full">
+            <label className="conductor-field-label full">
+              <span className="conductor-label-text">
+                Instruction (<code>&#123;from&#125;</code> is replaced with source name):
+              </span>
+              <textarea
+                className="conductor-instruction-input"
+                value={instruction}
+                rows={2}
+                onChange={(e) => setInstruction(e.target.value)}
+                placeholder="Enter instructions for reviewing agent…"
+              />
+            </label>
+          </div>
+
+          <div className="conductor-form-options">
+            <label
+              className="conductor-checkbox-label"
+              title={!targetIsAgent ? 'Disabled: target is a plain shell' : undefined}
+            >
+              <input
+                type="checkbox"
+                checked={effectivePressEnter}
+                disabled={!targetIsAgent}
+                onChange={(e) => setPressEnter(e.target.checked)}
+              />
+              <span>Press Enter after pasting</span>
+              {!targetIsAgent && (
+                <span className="conductor-hint-warn">(disabled for shell targets)</span>
+              )}
+            </label>
+          </div>
+        </div>
+      )}
+
 
       {pickerOpen && (
         <div className="target-menu">
