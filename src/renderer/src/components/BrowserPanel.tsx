@@ -264,6 +264,14 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
       })
       return
     }
+    if (focusedPane.status === 'exited') {
+      notify({
+        kind: 'attention',
+        title: 'Cannot send errors',
+        text: 'The active terminal pane has exited.'
+      })
+      return
+    }
     if (!targetIsAgent) {
       notify({
         kind: 'attention',
@@ -863,12 +871,12 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
               <button
                 className="btn browser-console-btn"
                 onClick={handleSendErrors}
-                disabled={!targetIsAgent || !report.text}
+                disabled={!focusedPane || !report.text}
                 title={
                   !focusedPane
                     ? 'No pane focused'
                     : !targetIsAgent
-                      ? 'Focused pane is a shell, not an agent'
+                      ? 'Active pane is a shell (click to see reason)'
                       : `Send to ${focusedPane.name || 'agent'}`
                 }
               >
