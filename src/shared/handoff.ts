@@ -173,4 +173,27 @@ export function buildHandoffText(input: HandoffInput): HandoffResult {
   }
 }
 
+/**
+ * Determines whether a pane is running an AI coding agent or a bare shell.
+ *
+ * Prefers detected/selected `agentId` over `command` because `agentId` reflects
+ * dynamic runtime agent state (e.g. Claude Code detected in a session via SessionWatch
+ * or selected from the agent picker), whereas `command` is only populated when the pane
+ * was launched with an explicit command string.
+ *
+ * If `agentId` is present and explicitly `'shell'`, it is treated as a bare shell.
+ * If `agentId` is any other non-empty string ('claude', 'codex', etc.), it is an agent pane.
+ * If `agentId` is absent or null, it falls back to whether `command` was provided.
+ */
+export function isAgentPane(
+  p?: { command?: string | null; agentId?: string | null } | null
+): boolean {
+  if (!p) return false
+  if (p.agentId) {
+    return p.agentId !== 'shell'
+  }
+  return Boolean(p.command)
+}
+
+
 

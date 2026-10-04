@@ -54,8 +54,10 @@ const {
   buildHandoffText,
   DEFAULT_MAX_CHARS,
   HEADER_ALLOWANCE,
-  DEFAULT_INSTRUCTION
+  DEFAULT_INSTRUCTION,
+  isAgentPane
 } = await import(pathToFileURL(bundle).href)
+
 
 
 /* ── 1. sanitizePaste ──────────────────────────────────────────────────────── */
@@ -276,9 +278,53 @@ ok(
   `got ${resHuge.text.length}, expected <= ${DEFAULT_MAX_CHARS + HEADER_ALLOWANCE}`
 )
 
+/* ── 8. isAgentPane ────────────────────────────────────────────────────────── */
+
+describe('8. isAgentPane: agent detection vs bare shells')
+
+eq('null pane returns false', isAgentPane(null), false)
+eq('undefined pane returns false', isAgentPane(undefined), false)
+eq('empty pane object returns false', isAgentPane({}), false)
+eq(
+  'pane with agentId claude and command null is agent',
+  isAgentPane({ agentId: 'claude', command: null }),
+  true
+)
+eq(
+  'pane with agentId codex and command codex is agent',
+  isAgentPane({ agentId: 'codex', command: 'codex' }),
+  true
+)
+eq(
+  'pane with agentId shell and command null is not agent',
+  isAgentPane({ agentId: 'shell', command: null }),
+  false
+)
+eq(
+  'pane with agentId shell and command bash is not agent (agentId takes precedence)',
+  isAgentPane({ agentId: 'shell', command: 'bash' }),
+  false
+)
+eq(
+  'pane with null agentId but agent launch command is agent',
+  isAgentPane({ agentId: null, command: 'claude --session-id 123' }),
+  true
+)
+eq(
+  'pane with null agentId and null command is not agent',
+  isAgentPane({ agentId: null, command: null }),
+  false
+)
+eq(
+  'pane with undefined agentId and empty command is not agent',
+  isAgentPane({ agentId: undefined, command: '' }),
+  false
+)
+
 /* ── finish up ────────────────────────────────────────────────────────────── */
 
 fs.rmSync(tmp, { recursive: true, force: true })
+
 
 console.log(`\n\x1b[1m${pass} passed, ${failures.length} failed\x1b[0m\n`)
 if (failures.length) {
