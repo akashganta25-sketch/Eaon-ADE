@@ -68,6 +68,13 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const [previewResult, setPreviewResult] = useState<HandoffResult | null>(null)
   const [previewLoading, setPreviewLoading] = useState<boolean>(false)
 
+  const [confirmShell, setConfirmShell] = useState<boolean>(false)
+
+  // Reset shell confirm when target, source or mode changes
+  useEffect(() => {
+    setConfirmShell(false)
+  }, [toPaneId, fromPaneId, mode])
+
   // Debounced computation of handoff preview text (150ms)
   useEffect(() => {
     if (mode !== 'handoff') return
@@ -189,7 +196,7 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const targetIsAgent = isAgentPane(targetPane)
   const effectivePressEnter = targetIsAgent && pressEnter
 
-  const sendHandoff = (): void => {
+  const doSendHandoff = (): void => {
     if (!toPaneId) {
       notify({ kind: 'error', title: 'No target selected', text: 'Choose a pane to hand off to.' })
       return
@@ -226,6 +233,14 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
         text: err instanceof Error ? err.message : String(err)
       })
     }
+  }
+
+  const handleSendClick = (): void => {
+    if (!targetIsAgent) {
+      setConfirmShell(true)
+      return
+    }
+    doSendHandoff()
   }
 
   return (
@@ -457,15 +472,42 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
           </div>
 
           <div className="conductor-handoff-footer">
-            <button
-              type="button"
-              className="btn btn-primary conductor-handoff-send-btn"
-              disabled={!toPaneId || toPaneId === fromPaneId || !previewResult?.text}
-              onClick={sendHandoff}
-            >
-              <SendHorizontal size={14} />
-              <span>Send hand-off</span>
-            </button>
+            {confirmShell ? (
+              <div className="conductor-confirm-shell">
+                <span className="conductor-confirm-text">
+                  Target is a plain shell. Paste without running?
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary conductor-confirm-btn"
+                  onClick={() => {
+                    setConfirmShell(false)
+                    doSendHandoff()
+                  }}
+                >
+                  Paste
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn conductor-confirm-cancel"
+                  onClick={() => setConfirmShell(false)}
+                  title="Cancel"
+                  aria-label="Cancel paste"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary conductor-handoff-send-btn"
+                disabled={!toPaneId || toPaneId === fromPaneId || !previewResult?.text}
+                onClick={handleSendClick}
+              >
+                <SendHorizontal size={14} />
+                <span>Send hand-off</span>
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -823,6 +823,38 @@
   font-size: var(--fs-label);
 }
 
+.conductor-confirm-shell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conductor-confirm-text {
+  font-size: var(--fs-label);
+  color: var(--text-mid);
+}
+
+.conductor-confirm-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-label);
+}
+
+.conductor-confirm-cancel {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  color: var(--text-mid);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.conductor-confirm-cancel:hover {
+  color: var(--text-hi);
+  background: var(--ink-200);
+}
+
+
 
 
 
