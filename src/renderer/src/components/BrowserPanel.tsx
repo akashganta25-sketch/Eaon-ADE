@@ -56,6 +56,14 @@ interface WebviewEl extends HTMLElement {
   openDevTools(): void
   closeDevTools(): void
   isDevToolsOpened(): boolean
+  getWebContentsId(): number
+}
+
+export interface WebviewConsoleMessageEvent extends Event {
+  level: number
+  message: string
+  line: number
+  sourceId: string
 }
 
 interface FailEvent extends Event {
