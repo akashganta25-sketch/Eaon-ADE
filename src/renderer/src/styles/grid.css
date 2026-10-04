@@ -512,6 +512,36 @@
   flex: 0 0 auto;
 }
 
+.conductor-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--ink-200);
+  border: 1px solid var(--line-200);
+  flex: 0 0 auto;
+}
+
+.conductor-mode-btn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: var(--fs-micro);
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  transition: all var(--dur) var(--ease);
+}
+.conductor-mode-btn:hover {
+  color: var(--text-hi);
+}
+.conductor-mode-btn[data-active='true'] {
+  background: var(--surface-3);
+  color: var(--text-hi);
+  font-weight: 500;
+}
+
+
 .conductor-target {
   display: inline-flex;
   align-items: center;
