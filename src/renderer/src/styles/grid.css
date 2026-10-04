@@ -802,6 +802,28 @@
   word-break: break-word;
 }
 
+.conductor-row-spacer {
+  flex: 1;
+}
+
+.conductor-handoff-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.conductor-handoff-send-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: var(--fs-label);
+}
+
+
 
 
 /* ---- dropping a file onto a pane ---------------------------------------- *

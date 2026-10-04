@@ -189,6 +189,45 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const targetIsAgent = isAgentPane(targetPane)
   const effectivePressEnter = targetIsAgent && pressEnter
 
+  const sendHandoff = (): void => {
+    if (!toPaneId) {
+      notify({ kind: 'error', title: 'No target selected', text: 'Choose a pane to hand off to.' })
+      return
+    }
+    const target = workspace.panes.find((p) => p.id === toPaneId)
+    if (!target || target.status === 'exited') {
+      notify({ kind: 'error', title: 'Invalid target', text: 'Target pane is closed or exited.' })
+      return
+    }
+    if (toPaneId === fromPaneId) {
+      notify({ kind: 'error', title: 'Invalid target', text: 'Cannot hand off to the same pane.' })
+      return
+    }
+    const toSend = previewResult?.text
+    if (!toSend) {
+      notify({ kind: 'error', title: 'Nothing to send', text: 'No content to hand off.' })
+      return
+    }
+    try {
+      terminals.paste(toPaneId, toSend)
+      if (effectivePressEnter) {
+        terminals.send(toPaneId, '\r')
+      }
+      notify({
+        kind: 'info',
+        title: 'Hand-off sent',
+        text: `Pasted into ${target.name}.`,
+        workspaceId: workspace.id
+      })
+    } catch (err) {
+      notify({
+        kind: 'error',
+        title: 'Failed to send hand-off',
+        text: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
+
   return (
     <div className="conductor" data-expanded={expanded || mode === 'handoff'} ref={rootRef}>
       <div className="conductor-row">
@@ -264,6 +303,8 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
             </button>
           </>
         )}
+
+        {mode === 'handoff' && <span className="conductor-row-spacer" />}
 
         <button className="icon-btn conductor-close" onClick={toggle} title="Close" aria-label="Close conductor">
           <X size={14} />
@@ -413,6 +454,18 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
             <pre className="conductor-preview-text">
               {previewResult ? displayText(previewResult.text) : 'Gathering content…'}
             </pre>
+          </div>
+
+          <div className="conductor-handoff-footer">
+            <button
+              type="button"
+              className="btn btn-primary conductor-handoff-send-btn"
+              disabled={!toPaneId || toPaneId === fromPaneId || !previewResult?.text}
+              onClick={sendHandoff}
+            >
+              <SendHorizontal size={14} />
+              <span>Send hand-off</span>
+            </button>
           </div>
         </div>
       )}
