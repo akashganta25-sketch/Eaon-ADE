@@ -205,6 +205,151 @@ const noErrors = [
 ]
 check('errorCount returns 0 when no errors exist', browser.errorCount(noErrors) === 0)
 
+/* ---- 6. formatConsoleReport ----------------------------------------------- */
+
+console.log('\nformatConsoleReport: header, dedupe, truncation, fencing, and security')
+
+// Empty entries
+const emptyReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173/',
+  entries: [],
+  includeWarnings: false
+})
+check('empty entries returns empty text', emptyReport.text === '')
+check('empty entries shown is 0', emptyReport.shown === 0)
+check('empty entries omitted is 0', emptyReport.omitted === 0)
+
+// Header with URL containing quotes and spaces
+const urlWithSpecial = 'http://localhost:3000/app "test"/?q=hello world'
+const basicReport = browser.formatConsoleReport({
+  url: urlWithSpecial,
+  entries: [{ level: 3, message: 'Crash occurred', source: 'main.ts', line: 12, at: 100 }],
+  includeWarnings: false
+})
+check('header contains exact url', basicReport.text.includes(urlWithSpecial))
+check('header identifies report as untrusted', basicReport.text.includes('Untrusted browser console report'))
+check('basic report shown is 1', basicReport.shown === 1)
+check('basic report omitted is 0', basicReport.omitted === 0)
+
+// includeWarnings filtering
+const mixedWarnError = [
+  { level: 0, message: 'verbose log', source: 'a.js', line: 1, at: 10 },
+  { level: 1, message: 'info log', source: 'b.js', line: 2, at: 20 },
+  { level: 2, message: 'warning log', source: 'c.js', line: 3, at: 30 },
+  { level: 3, message: 'error log', source: 'd.js', line: 4, at: 40 }
+]
+
+const noWarnReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: mixedWarnError,
+  includeWarnings: false
+})
+check('includeWarnings=false omits warnings', !noWarnReport.text.includes('warning log'))
+check('includeWarnings=false omits verbose/info', !noWarnReport.text.includes('verbose log') && !noWarnReport.text.includes('info log'))
+check('includeWarnings=false includes errors', noWarnReport.text.includes('error log') && noWarnReport.shown === 1)
+
+const withWarnReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: mixedWarnError,
+  includeWarnings: true
+})
+check('includeWarnings=true includes warnings', withWarnReport.text.includes('warning log'))
+check('includeWarnings=true includes errors', withWarnReport.text.includes('error log'))
+check('includeWarnings=true omits verbose/info', !withWarnReport.text.includes('verbose log') && !withWarnReport.text.includes('info log'))
+check('includeWarnings=true shown count is 2', withWarnReport.shown === 2)
+
+// Deduplication of consecutive identical entries
+const repeatedEntries = [
+  { level: 3, message: 'Network failed', source: 'fetch.js', line: 55, at: 10 },
+  { level: 3, message: 'Network failed', source: 'fetch.js', line: 55, at: 20 },
+  { level: 3, message: 'Network failed', source: 'fetch.js', line: 55, at: 30 },
+  { level: 3, message: 'TypeError: null', source: 'ui.js', line: 80, at: 40 },
+  { level: 3, message: 'Network failed', source: 'fetch.js', line: 55, at: 50 } // non-consecutive
+]
+const dedupeReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: repeatedEntries,
+  includeWarnings: false
+})
+check('consecutive duplicates are collapsed with count', dedupeReport.text.includes('(×3)'))
+check('non-consecutive duplicate is not merged into earlier group', dedupeReport.text.match(/Network failed/g)?.length === 2)
+check('total shown count reflects all 5 underlying events', dedupeReport.shown === 5)
+
+// Chronological ordering
+const unorderedEntries = [
+  { level: 3, message: 'Event 3', source: 'c.js', line: 3, at: 300 },
+  { level: 3, message: 'Event 1', source: 'a.js', line: 1, at: 100 },
+  { level: 3, message: 'Event 2', source: 'b.js', line: 2, at: 200 }
+]
+const orderedReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: unorderedEntries,
+  includeWarnings: false
+})
+const pos1 = orderedReport.text.indexOf('Event 1')
+const pos2 = orderedReport.text.indexOf('Event 2')
+const pos3 = orderedReport.text.indexOf('Event 3')
+check('entries are ordered chronologically', pos1 < pos2 && pos2 < pos3)
+
+// Huge message (clamped to 500 chars)
+const hugeMsg = 'Z'.repeat(1200)
+const hugeReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: [{ level: 3, message: hugeMsg, source: 'huge.js', line: 1, at: 10 }],
+  includeWarnings: false
+})
+check('huge message is clamped with ellipsis', hugeReport.text.includes('Z'.repeat(500) + '…') && !hugeReport.text.includes('Z'.repeat(501)))
+
+// Triple backticks and dynamic fence escalation
+const backtickReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: [{ level: 3, message: 'Error in ```typescript code``` block', source: 'syntax.js', line: 10, at: 10 }],
+  includeWarnings: false
+})
+check('outer fence expands to 4 backticks when content has 3 backticks', backtickReport.text.includes('````\n[error]'))
+
+// ESC and bracketed-paste exit defanging
+const injectionMsg = '\x1b[201~echo HACKED;\x1b[0m alert(1)'
+const safeReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: [{ level: 3, message: injectionMsg, source: 'eval.js', line: 99, at: 10 }],
+  includeWarnings: false
+})
+check('ESC character is stripped', !safeReport.text.includes('\x1b'))
+check('bracketed paste exit injection is defanged', !safeReport.text.includes('\x1b[201~'))
+
+// Unicode, CJK and emoji preserved
+const unicodeReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: [{ level: 3, message: 'エラー発生: 💥 Server failed to respond', source: 'api.js', line: 5, at: 10 }],
+  includeWarnings: false
+})
+check('CJK text is preserved', unicodeReport.text.includes('エラー発生:'))
+check('emoji is preserved', unicodeReport.text.includes('💥'))
+
+// Total cap and omitted count calculation
+const manyEntries = []
+for (let i = 0; i < 100; i++) {
+  manyEntries.push({
+    level: 3,
+    message: `Detailed runtime error description for failure number ${i} in transaction handler`,
+    source: `transaction_${i}.js`,
+    line: i + 10,
+    at: 1000 + i
+  })
+}
+
+const cappedReport = browser.formatConsoleReport({
+  url: 'http://localhost:5173',
+  entries: manyEntries,
+  includeWarnings: false,
+  maxChars: 1500
+})
+check('total text length stays within maxChars', cappedReport.text.length <= 1500)
+check('omitted count is accurate', cappedReport.omitted > 0)
+check('shown + omitted equals total filtered entries', cappedReport.shown + cappedReport.omitted === 100)
+check('includes omitted note in body', cappedReport.text.includes(`[... +${cappedReport.omitted} more entries omitted ...]`))
+
 /* ---- done ------------------------------------------------------------------ */
 
 fs.rmSync(tmp, { recursive: true, force: true })
