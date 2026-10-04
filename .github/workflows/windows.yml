@@ -51,6 +51,9 @@ jobs:
       - name: Typecheck and bundle
         run: npm run build
 
+      - name: Check hand-off logic
+        run: npm run check:handoff
+
       # npm installs only the sharp binary matching this runner, so the arm64
       # and ia32 packages would ship without one. Nothing fails at package time;
       # it fails the first time somebody on those machines dictates.

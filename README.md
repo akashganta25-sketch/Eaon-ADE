@@ -82,6 +82,9 @@ sees one; that is a one-off per workspace.
 **Conductor** (`⌘J`) — type once, send to the pane you are in, to every pane, or
 to one you name.
 
+**Hand off between panes** (Conductor › Hand off) — package one pane's recent terminal output or trial git diff into a safe, fenced markdown prompt and paste it directly into another agent for review or follow-up. Output is automatically sanitized against ANSI escape code and bracketed-paste exit injection, identical consecutive line repetitions are collapsed, and backtick fences expand dynamically to prevent Markdown fence collisions. Plain shell targets are guarded with an inline confirmation and never auto-executed.
+
+
 **Voice dictation** (hold `Right ⌘`) — talk to your agents instead of typing at
 them. Hold the key, speak, let go, and the words go wherever you were already
 typing: the focused pane's prompt, the Conductor, a Vault note. A readout at the

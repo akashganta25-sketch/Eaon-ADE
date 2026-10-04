@@ -81,6 +81,9 @@ jobs:
       - name: Typecheck and bundle
         run: npm run build
 
+      - name: Check hand-off logic
+        run: npm run check:handoff
+
       - name: Check the Linux-specific paths
         run: npm run check:linux
 
