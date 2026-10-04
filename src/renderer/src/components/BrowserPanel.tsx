@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Check,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -12,14 +14,17 @@ import {
   MoreVertical,
   RotateCw,
   Search,
+  SendHorizontal,
   Server,
   ShieldAlert,
   SquareTerminal,
+  Trash2,
   X
 } from 'lucide-react'
 import {
   engineById,
   errorCount,
+  formatConsoleReport,
   prettyUrl,
   pushEntry,
   resolveInput,
@@ -27,6 +32,8 @@ import {
   type ConsoleEntry,
   type Safety
 } from '@shared/browser'
+import { isAgentPane } from '@shared/handoff'
+import { terminals } from '../lib/terminals'
 import { useStore } from '../store/useStore'
 
 /**
@@ -146,6 +153,9 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
   const engineId = useStore((s) => s.settings.browserSearchEngine)
   const savedZoom = useStore((s) => s.settings.browserZoom)
   const update = useStore((s) => s.updateSettings)
+  const workspaces = useStore((s) => s.workspaces)
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
+  const notify = useStore((s) => s.notify)
 
   const rootRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<WebviewEl | null>(null)
@@ -186,6 +196,12 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
   const [consoleErrorCount, setConsoleErrorCount] = useState<number>(0)
   const throttleTimerRef = useRef<number | null>(null)
 
+  const [consolePopoverOpen, setConsolePopoverOpen] = useState(false)
+  const [includeWarnings, setIncludeWarnings] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const badgeBtnRef = useRef<HTMLButtonElement>(null)
+
   useEffect(() => {
     return () => {
       if (throttleTimerRef.current !== null) {
@@ -193,6 +209,85 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!consolePopoverOpen) return
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node | null
+      if (!target) return
+      if (popoverRef.current?.contains(target)) return
+      if (badgeBtnRef.current?.contains(target)) return
+      setConsolePopoverOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [consolePopoverOpen])
+
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === activeWorkspaceId),
+    [workspaces, activeWorkspaceId]
+  )
+  const focusedPane = useMemo(
+    () => activeWorkspace?.panes.find((p) => p.id === activeWorkspace.activePaneId) ?? null,
+    [activeWorkspace]
+  )
+  const targetIsAgent = useMemo(() => isAgentPane(focusedPane), [focusedPane])
+
+  const report = useMemo(() => {
+    return formatConsoleReport({
+      url: current,
+      entries: consoleEntriesRef.current,
+      includeWarnings
+    })
+  }, [current, consoleErrorCount, includeWarnings, consolePopoverOpen])
+
+  const handleClearErrors = useCallback(() => {
+    consoleEntriesRef.current = []
+    setConsoleErrorCount(0)
+    setConsolePopoverOpen(false)
+  }, [])
+
+  const handleCopyErrors = useCallback(() => {
+    if (!report.text) return
+    void navigator.clipboard.writeText(report.text).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }, [report.text])
+
+  const handleSendErrors = useCallback(() => {
+    if (!focusedPane) {
+      notify({
+        kind: 'attention',
+        title: 'Cannot send errors',
+        text: 'No terminal pane is currently active.'
+      })
+      return
+    }
+    if (!targetIsAgent) {
+      notify({
+        kind: 'attention',
+        title: 'Cannot send errors',
+        text: 'Console errors can only be sent to an agent pane, but the active pane is a standard shell.'
+      })
+      return
+    }
+    if (!report.text) {
+      notify({
+        kind: 'attention',
+        title: 'No errors to send',
+        text: 'There are no console errors in the current report.'
+      })
+      return
+    }
+    terminals.paste(focusedPane.id, report.text)
+    notify({
+      kind: 'info',
+      title: 'Errors sent',
+      text: `Sent ${report.shown} error${report.shown === 1 ? '' : 's'} to ${focusedPane.name || 'agent'}`
+    })
+    setConsolePopoverOpen(false)
+  }, [focusedPane, targetIsAgent, report, notify])
 
   /**
    * True while the address bar holds something you typed rather than the page's
@@ -624,6 +719,20 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
           <ExternalLink size={14} />
         </button>
 
+        {consoleErrorCount > 0 && (
+          <button
+            ref={badgeBtnRef}
+            className="browser-badge-btn"
+            onClick={() => setConsolePopoverOpen((o) => !o)}
+            title={`${consoleErrorCount} console error${consoleErrorCount === 1 ? '' : 's'}`}
+            aria-label={`${consoleErrorCount} console error${consoleErrorCount === 1 ? '' : 's'}`}
+            aria-expanded={consolePopoverOpen}
+          >
+            <AlertCircle size={13} className="browser-badge-icon" />
+            <span className="browser-badge-count">{consoleErrorCount}</span>
+          </button>
+        )}
+
         <span className="browser-more">
           <button
             className="icon-btn"
@@ -699,6 +808,93 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
           )}
         </span>
       </div>
+
+      {consolePopoverOpen && (
+        <div
+          ref={popoverRef}
+          className="browser-console-popover"
+          role="dialog"
+          aria-label="Console errors report"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="browser-console-header">
+            <span className="browser-console-header-title">
+              <AlertCircle size={14} className="browser-badge-icon" />
+              <span>Console errors ({consoleErrorCount})</span>
+            </span>
+            <button
+              className="icon-btn"
+              onClick={() => setConsolePopoverOpen(false)}
+              title="Close"
+              aria-label="Close"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="browser-console-toolbar">
+            <label className="browser-console-checkbox">
+              <input
+                type="checkbox"
+                checked={includeWarnings}
+                onChange={(e) => setIncludeWarnings(e.target.checked)}
+              />
+              <span>Include warnings</span>
+            </label>
+
+            <div className="browser-console-actions">
+              <button
+                className="btn browser-console-btn"
+                onClick={handleClearErrors}
+                title="Clear errors"
+              >
+                <Trash2 size={12} />
+                <span>Clear</span>
+              </button>
+              <button
+                className="btn browser-console-btn"
+                onClick={handleCopyErrors}
+                disabled={!report.text}
+                title="Copy report to clipboard"
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+              <button
+                className="btn browser-console-btn"
+                onClick={handleSendErrors}
+                disabled={!targetIsAgent || !report.text}
+                title={
+                  !focusedPane
+                    ? 'No pane focused'
+                    : !targetIsAgent
+                      ? 'Focused pane is a shell, not an agent'
+                      : `Send to ${focusedPane.name || 'agent'}`
+                }
+              >
+                <SendHorizontal size={12} />
+                <span>Send to {focusedPane?.name || 'agent'}</span>
+              </button>
+            </div>
+          </div>
+
+          {report.omitted > 0 && (
+            <div className="browser-console-omitted-note">
+              +{report.omitted} older {report.omitted === 1 ? 'entry' : 'entries'} omitted to stay within size limits
+            </div>
+          )}
+
+          <div className="browser-console-preview-wrap">
+            {report.text ? (
+              <pre className="browser-console-preview">{report.text}</pre>
+            ) : (
+              <span className="browser-console-preview" style={{ color: 'var(--text-dim)' }}>
+                No errors captured yet.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {findOpen && (
         <div className="browser-find">
