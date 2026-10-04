@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Camera,
   Check,
   ChevronDown,
   ChevronUp,
@@ -33,6 +34,7 @@ import {
   type Safety
 } from '@shared/browser'
 import { isAgentPane } from '@shared/handoff'
+import { lineFor } from '../lib/drop'
 import { terminals } from '../lib/terminals'
 import { useStore } from '../store/useStore'
 
@@ -296,6 +298,67 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
     })
     setConsolePopoverOpen(false)
   }, [focusedPane, targetIsAgent, report, notify])
+
+  const [capturing, setCapturing] = useState(false)
+
+  const handleScreenshot = useCallback(async () => {
+    if (capturing) return
+    if (!focusedPane) {
+      notify({
+        kind: 'attention',
+        title: 'Cannot send screenshot',
+        text: 'No terminal pane is currently active.'
+      })
+      return
+    }
+    if (focusedPane.status === 'exited') {
+      notify({
+        kind: 'attention',
+        title: 'Cannot send screenshot',
+        text: 'The active terminal pane has exited.'
+      })
+      return
+    }
+
+    const wcId = viewRef.current?.getWebContentsId?.()
+    if (!wcId) {
+      notify({
+        kind: 'error',
+        title: 'Capture failed',
+        text: 'Preview page is not ready to be captured.'
+      })
+      return
+    }
+
+    setCapturing(true)
+    try {
+      const res = await window.eaon.browser.capture(wcId)
+      if (!res.ok) {
+        notify({
+          kind: 'error',
+          title: 'Capture failed',
+          text: res.error
+        })
+        return
+      }
+
+      const formatted = `${lineFor([res.path])} `
+      terminals.paste(focusedPane.id, formatted)
+      notify({
+        kind: 'info',
+        title: 'Screenshot ready',
+        text: `Pasted screenshot path into ${focusedPane.name || 'pane'}`
+      })
+    } catch (err) {
+      notify({
+        kind: 'error',
+        title: 'Capture failed',
+        text: err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      setCapturing(false)
+    }
+  }, [capturing, focusedPane, notify])
 
   /**
    * True while the address bar holds something you typed rather than the page's
@@ -725,6 +788,20 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
           aria-label="Open in your browser"
         >
           <ExternalLink size={14} />
+        </button>
+
+        <button
+          className="icon-btn"
+          disabled={capturing || !focusedPane}
+          onClick={handleScreenshot}
+          title={
+            !focusedPane
+              ? 'No pane focused'
+              : `Screenshot → ${focusedPane.name || 'agent'}`
+          }
+          aria-label="Screenshot → agent"
+        >
+          <Camera size={14} />
         </button>
 
         {consoleErrorCount > 0 && (
