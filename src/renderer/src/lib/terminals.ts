@@ -9,6 +9,7 @@ import type { PaneStatus, Settings } from '@shared/types'
 import type { SshHost } from '@shared/ssh'
 import { IS_MAC, commandFor } from './keys'
 import { stripAnsi } from './util'
+import { linesToText } from '@shared/handoff'
 
 /** Patterns that mean the agent has stopped and is waiting on a human. */
 const WAITING = [
@@ -1050,6 +1051,32 @@ class TerminalRegistry {
 
   selection(paneId: string): string {
     return this.panes.get(paneId)?.term.getSelection() ?? ''
+  }
+
+  /**
+   * Reads up to `maxLines` from the bottom of a pane's xterm buffer without
+   * mutating terminal state, stealing focus, or altering selection.
+   *
+   * Translates buffer lines to text, respects soft-wrapped lines, trims trailing
+   * blank lines, and collapses spinner redraw runs via linesToText.
+   * Returns null if the pane is not found.
+   */
+  readTail(paneId: string, maxLines = 80): string | null {
+    const rt = this.panes.get(paneId)
+    if (!rt) return null
+    const buffer = rt.term.buffer.active
+    const total = buffer.length
+    const start = Math.max(0, total - Math.max(1, maxLines))
+    const rawLines: { text: string; wrapped: boolean }[] = []
+    for (let i = start; i < total; i += 1) {
+      const line = buffer.getLine(i)
+      if (!line) continue
+      rawLines.push({
+        text: line.translateToString(true),
+        wrapped: Boolean(line.isWrapped)
+      })
+    }
+    return linesToText(rawLines)
   }
 
   applySettings(settings: Settings): void {
