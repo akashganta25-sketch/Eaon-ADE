@@ -1,15 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Maximize2, Mic, Minimize2, Radio, SendHorizontal, X } from 'lucide-react'
 import type { Workspace } from '@shared/types'
-import { DEFAULT_INSTRUCTION, isAgentPane } from '@shared/handoff'
+import {
+  DEFAULT_INSTRUCTION,
+  buildHandoffText,
+  isAgentPane,
+  type HandoffResult
+} from '@shared/handoff'
 
 import { useStore } from '../store/useStore'
+
 import { terminals } from '../lib/terminals'
 import { dictation, joinText } from '../lib/dictation'
 import { toggleDictation } from '../lib/voice'
 
 export type ConductorMode = 'message' | 'handoff'
 type Target = { kind: 'focused' } | { kind: 'all' } | { kind: 'pane'; id: string }
+
+const DISPLAY_CAP = 2000
+
+function displayText(fullText: string): string {
+  if (fullText.length <= DISPLAY_CAP) return fullText
+  const remaining = fullText.length - DISPLAY_CAP
+  return (
+    fullText.slice(0, DISPLAY_CAP) +
+    `\n\n[… display truncated; ${remaining} more characters will be pasted …]`
+  )
+}
+
 
 /**
  * One place to type into many shells, or hand off one agent's work to another.
@@ -47,6 +65,49 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   })
   const [instruction, setInstruction] = useState<string>(DEFAULT_INSTRUCTION)
   const [pressEnter, setPressEnter] = useState<boolean>(false)
+  const [previewResult, setPreviewResult] = useState<HandoffResult | null>(null)
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false)
+
+  // Debounced computation of handoff preview text (150ms)
+  useEffect(() => {
+    if (mode !== 'handoff') return
+    let active = true
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true)
+      try {
+        const fromPane = workspace.panes.find((p) => p.id === fromPaneId)
+        const fromName = fromPane?.name ?? 'pane'
+        let body = ''
+        if (contentKind === 'output') {
+          body = terminals.readTail(fromPaneId, lineCount) ?? ''
+        } else {
+          const trial = trials.find((t) => t.workspaceId === workspace.id)
+          const member = trial?.members.find((m) => m.paneId === fromPaneId)
+          if (member && trial?.baseSha) {
+            body = await window.eaon.worktrees.diff(member.path, trial.baseSha, trial.host ?? null)
+          } else {
+            body = 'No changes yet'
+          }
+        }
+        if (!active) return
+        const res = buildHandoffText({
+          fromName,
+          kind: contentKind,
+          body,
+          instruction
+        })
+        setPreviewResult(res)
+      } finally {
+        if (active) setPreviewLoading(false)
+      }
+    }, 150)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [mode, fromPaneId, contentKind, lineCount, instruction, workspace, trials])
+
 
 
   // Dictation into the message box appends to whatever is already typed, so
@@ -330,8 +391,22 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
               )}
             </label>
           </div>
+
+          <div className="conductor-preview-container">
+            <div className="conductor-preview-header">
+              <span>
+                Preview ({previewResult ? `${previewResult.chars} characters` : 'computing…'}
+                {previewResult?.truncated ? `, [omitted ${previewResult.omitted} chars]` : ''}):
+              </span>
+              {previewLoading && <span className="conductor-preview-loading">updating…</span>}
+            </div>
+            <pre className="conductor-preview-text">
+              {previewResult ? displayText(previewResult.text) : 'Gathering content…'}
+            </pre>
+          </div>
         </div>
       )}
+
 
 
       {pickerOpen && (

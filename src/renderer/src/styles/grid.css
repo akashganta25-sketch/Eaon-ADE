@@ -764,6 +764,45 @@
   margin-left: auto;
 }
 
+.conductor-preview-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  padding: 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-200);
+  background: var(--ink-300);
+}
+
+.conductor-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-dim);
+}
+
+.conductor-preview-loading {
+  font-size: var(--fs-micro);
+  color: var(--accent);
+}
+
+.conductor-preview-text {
+  margin: 0;
+  padding: 0;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1.4;
+  color: var(--text-mid);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+
 
 /* ---- dropping a file onto a pane ---------------------------------------- *
  *
