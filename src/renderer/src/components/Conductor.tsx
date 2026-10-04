@@ -84,11 +84,21 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
           const trial = trials.find((t) => t.workspaceId === workspace.id)
           const member = trial?.members.find((m) => m.paneId === fromPaneId)
           if (member && trial?.baseSha) {
-            body = await window.eaon.worktrees.diff(member.path, trial.baseSha, trial.host ?? null)
+            try {
+              const diff = await window.eaon.worktrees.diff(
+                member.path,
+                trial.baseSha,
+                trial.host ?? null
+              )
+              body = diff && diff.trim() ? diff.trim() : 'No changes yet'
+            } catch (err) {
+              body = `Could not read changes: ${err instanceof Error ? err.message : String(err)}`
+            }
           } else {
             body = 'No changes yet'
           }
         }
+
         if (!active) return
         const res = buildHandoffText({
           fromName,
