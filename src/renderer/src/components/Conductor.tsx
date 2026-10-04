@@ -51,6 +51,20 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const [pickerOpen, setPickerOpen] = useState(false)
   const [dictating, setDictating] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const previouslyFocusedPaneRef = useRef<string | null>(workspace.activePaneId ?? null)
+
+  useEffect(() => {
+    if (open && workspace.activePaneId) {
+      previouslyFocusedPaneRef.current = workspace.activePaneId
+    }
+  }, [open, workspace.activePaneId])
+
+  const returnFocus = (): void => {
+    const targetId = previouslyFocusedPaneRef.current ?? workspace.activePaneId
+    if (targetId) {
+      terminals.focus(targetId)
+    }
+  }
 
   // Hand-off mode state
   const [fromPaneId, setFromPaneId] = useState<string>(() => {
@@ -67,13 +81,34 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   const [pressEnter, setPressEnter] = useState<boolean>(false)
   const [previewResult, setPreviewResult] = useState<HandoffResult | null>(null)
   const [previewLoading, setPreviewLoading] = useState<boolean>(false)
-
   const [confirmShell, setConfirmShell] = useState<boolean>(false)
 
   // Reset shell confirm when target, source or mode changes
   useEffect(() => {
     setConfirmShell(false)
   }, [toPaneId, fromPaneId, mode])
+
+  useEffect(() => {
+    if (!open) return
+    const onGlobalKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (confirmShell) {
+          setConfirmShell(false)
+          return
+        }
+        if (pickerOpen) {
+          setPickerOpen(false)
+          return
+        }
+        toggle()
+        returnFocus()
+      }
+    }
+    window.addEventListener('keydown', onGlobalKey, true)
+    return () => window.removeEventListener('keydown', onGlobalKey, true)
+  }, [open, confirmShell, pickerOpen, toggle])
 
   // Debounced computation of handoff preview text (150ms)
   useEffect(() => {
@@ -186,7 +221,10 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
       e.preventDefault()
       send()
     }
-    if (e.key === 'Escape') toggle()
+    if (e.key === 'Escape') {
+      toggle()
+      returnFocus()
+    }
   }
 
   const trial = trials.find((t) => t.workspaceId === workspace.id)
@@ -220,6 +258,7 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
       if (effectivePressEnter) {
         terminals.send(toPaneId, '\r')
       }
+      returnFocus()
       notify({
         kind: 'info',
         title: 'Hand-off sent',
@@ -236,10 +275,11 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
   }
 
   const handleSendClick = (): void => {
-    if (!targetIsAgent) {
+    if (!targetIsAgent && !confirmShell) {
       setConfirmShell(true)
       return
     }
+    setConfirmShell(false)
     doSendHandoff()
   }
 
@@ -339,7 +379,15 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
       )}
 
       {mode === 'handoff' && (
-        <div className="conductor-handoff-form">
+        <div
+          className="conductor-handoff-form"
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault()
+              handleSendClick()
+            }
+          }}
+        >
           <div className="conductor-form-row">
             <label className="conductor-field-label">
               <span className="conductor-label-text">From:</span>
@@ -435,6 +483,12 @@ export function Conductor({ workspace }: { workspace: Workspace }): React.JSX.El
                 value={instruction}
                 rows={2}
                 onChange={(e) => setInstruction(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault()
+                    handleSendClick()
+                  }
+                }}
                 placeholder="Enter instructions for reviewing agent…"
               />
             </label>
