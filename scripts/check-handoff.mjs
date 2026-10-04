@@ -46,9 +46,17 @@ await build({
   logLevel: 'silent'
 })
 
-const { sanitizePaste, fenceFor, collapseRepeats, linesToText } = await import(
-  pathToFileURL(bundle).href
-)
+const {
+  sanitizePaste,
+  fenceFor,
+  collapseRepeats,
+  linesToText,
+  buildHandoffText,
+  DEFAULT_MAX_CHARS,
+  HEADER_ALLOWANCE,
+  DEFAULT_INSTRUCTION
+} = await import(pathToFileURL(bundle).href)
+
 
 /* ── 1. sanitizePaste ──────────────────────────────────────────────────────── */
 
@@ -170,6 +178,104 @@ eq(
   'loading...\n[repeated 2 more times]\ndone'
 )
 
+/* ── 7. buildHandoffText ───────────────────────────────────────────────────── */
+
+describe('7. buildHandoffText: header, placeholders, truncation, and fencing')
+
+const res1 = buildHandoffText({
+  fromName: 'Ada',
+  kind: 'output',
+  body: 'echo "hello from Ada"',
+  instruction: DEFAULT_INSTRUCTION
+})
+
+ok('instruction replaces {from} placeholder', res1.text.includes('Here is the latest work from Ada.'))
+ok('output header identifies source pane', res1.text.includes('Output from Ada:\n```\necho "hello from Ada"\n```'))
+eq('short body is not truncated', res1.truncated, false)
+eq('short body omitted chars is 0', res1.omitted, 0)
+eq('chars equals text.length', res1.chars, res1.text.length)
+
+const res2 = buildHandoffText({
+  fromName: 'Bo',
+  kind: 'changes',
+  body: 'diff --git a/file.ts b/file.ts',
+  instruction: 'Review changes by {from} for {unknown} tag'
+})
+
+ok('changes header identifies source pane', res2.text.includes('Changes from Bo:'))
+ok('unknown placeholders untouched', res2.text.includes('for {unknown} tag'))
+
+// Empty body case
+const resEmpty = buildHandoffText({
+  fromName: 'Cleo',
+  kind: 'output',
+  body: '',
+  instruction: ''
+})
+eq('empty body not truncated', resEmpty.truncated, false)
+eq('empty body omitted is 0', resEmpty.omitted, 0)
+ok('empty body chars is small', resEmpty.chars < 100)
+
+// Tail truncation for output
+const longOutput = 'START_MARKER_' + 'x'.repeat(100) + '_END_MARKER'
+const resTruncOutput = buildHandoffText({
+  fromName: 'Dev',
+  kind: 'output',
+  body: longOutput,
+  instruction: '',
+  maxChars: 50
+})
+eq('output is truncated', resTruncOutput.truncated, true)
+eq('output omitted count is accurate', resTruncOutput.omitted, longOutput.length - 50)
+ok('output preserves tail (END_MARKER)', resTruncOutput.text.includes('_END_MARKER'))
+ok('output drops head (START_MARKER)', !resTruncOutput.text.includes('START_MARKER'))
+ok(
+  'output includes omitted marker at top of fence',
+  resTruncOutput.text.includes(`[… ${longOutput.length - 50} characters omitted …]`)
+)
+
+// Head truncation for changes
+const longChanges = 'HEAD_DIFF_' + 'y'.repeat(100) + '_TAIL_DIFF'
+const resTruncChanges = buildHandoffText({
+  fromName: 'Eva',
+  kind: 'changes',
+  body: longChanges,
+  instruction: '',
+  maxChars: 50
+})
+eq('changes is truncated', resTruncChanges.truncated, true)
+eq('changes omitted count is accurate', resTruncChanges.omitted, longChanges.length - 50)
+ok('changes preserves head (HEAD_DIFF)', resTruncChanges.text.includes('HEAD_DIFF_'))
+ok('changes drops tail (TAIL_DIFF)', !resTruncChanges.text.includes('_TAIL_DIFF'))
+ok(
+  'changes includes omitted marker at bottom of fence',
+  resTruncChanges.text.includes(`[… ${longChanges.length - 50} characters omitted …]`)
+)
+
+// Backtick expansion
+const codeWithBackticks = '```typescript\nconst a = 1\n```'
+const resFence = buildHandoffText({
+  fromName: 'Fay',
+  kind: 'output',
+  body: codeWithBackticks,
+  instruction: ''
+})
+ok('fence expands to 4 backticks when body has 3 backticks', resFence.text.includes('````\n```typescript'))
+
+// Allowance check
+const resHuge = buildHandoffText({
+  fromName: 'Gus',
+  kind: 'output',
+  body: 'z'.repeat(50000),
+  instruction: DEFAULT_INSTRUCTION,
+  maxChars: DEFAULT_MAX_CHARS
+})
+ok(
+  'total text length stays within maxChars + HEADER_ALLOWANCE',
+  resHuge.text.length <= DEFAULT_MAX_CHARS + HEADER_ALLOWANCE,
+  `got ${resHuge.text.length}, expected <= ${DEFAULT_MAX_CHARS + HEADER_ALLOWANCE}`
+)
+
 /* ── finish up ────────────────────────────────────────────────────────────── */
 
 fs.rmSync(tmp, { recursive: true, force: true })
@@ -179,3 +285,4 @@ if (failures.length) {
   for (const f of failures) console.log(`  \x1b[31m✗\x1b[0m ${f}`)
   process.exit(1)
 }
+

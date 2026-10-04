@@ -99,3 +99,78 @@ export function linesToText(lines: { text: string; wrapped: boolean }[]): string
   return collapsed.join('\n')
 }
 
+export const DEFAULT_MAX_CHARS = 30000
+export const HEADER_ALLOWANCE = 2048
+export const DEFAULT_INSTRUCTION =
+  'Here is the latest work from {from}. Please review it and point out bugs, gaps or risks.'
+
+export interface HandoffInput {
+  fromName: string
+  kind: 'output' | 'changes'
+  body: string
+  instruction: string
+  maxChars?: number
+}
+
+export interface HandoffResult {
+  text: string
+  chars: number
+  truncated: boolean
+  omitted: number
+}
+
+/**
+ * Builds the complete formatted text string to be pasted into the target pane:
+ * - Replaces `{from}` in the instruction with the source pane's name.
+ * - Adds a header line identifying the source pane and kind.
+ * - Caps body content at `maxChars` (preserving the tail for output, head for changes).
+ * - Fences the body with a collision-free Markdown code fence.
+ * - Runs the final string through `sanitizePaste`.
+ */
+export function buildHandoffText(input: HandoffInput): HandoffResult {
+  const max = input.maxChars ?? DEFAULT_MAX_CHARS
+  const rawBody = input.body ?? ''
+  let bodyWithMarker = rawBody
+  let truncated = false
+  let omitted = 0
+
+  if (rawBody.length > max) {
+    truncated = true
+    omitted = rawBody.length - max
+    if (input.kind === 'output') {
+      // Keep the tail (latest lines)
+      const kept = rawBody.slice(omitted)
+      bodyWithMarker = `[… ${omitted} characters omitted …]\n${kept}`
+    } else {
+      // Keep the head (file order)
+      const kept = rawBody.slice(0, max)
+      bodyWithMarker = `${kept}\n[… ${omitted} characters omitted …]`
+    }
+  }
+
+  const fence = fenceFor(bodyWithMarker)
+  const resolvedInstruction = input.instruction
+    ? input.instruction.replace(/\{from\}/g, input.fromName).trim()
+    : ''
+
+  const header =
+    input.kind === 'output'
+      ? `Output from ${input.fromName}:`
+      : `Changes from ${input.fromName}:`
+
+  let full = ''
+  if (resolvedInstruction) {
+    full += `${resolvedInstruction}\n\n`
+  }
+  full += `${header}\n${fence}\n${bodyWithMarker}\n${fence}`
+
+  const sanitized = sanitizePaste(full)
+  return {
+    text: sanitized,
+    chars: sanitized.length,
+    truncated,
+    omitted
+  }
+}
+
+
