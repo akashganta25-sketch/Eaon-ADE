@@ -38,6 +38,7 @@
     "notarize:mac": "node scripts/notarize-mac.mjs",
     "release:github": "node scripts/publish-release.mjs",
     "check:automations": "node scripts/check-automation-schedule.mjs",
+    "check:handoff": "node scripts/check-handoff.mjs",
     "check:linux": "node scripts/check-linux.mjs",
     "check:agents": "node scripts/check-agent-detect.mjs",
     "check:roster": "node scripts/check-roster.mjs"
