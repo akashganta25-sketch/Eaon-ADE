@@ -19,9 +19,12 @@ import {
 } from 'lucide-react'
 import {
   engineById,
+  errorCount,
   prettyUrl,
+  pushEntry,
   resolveInput,
   safetyOf,
+  type ConsoleEntry,
   type Safety
 } from '@shared/browser'
 import { useStore } from '../store/useStore'
@@ -178,6 +181,18 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
     linkURL: string
     selectionText: string
   } | null>(null)
+
+  const consoleEntriesRef = useRef<ConsoleEntry[]>([])
+  const [consoleErrorCount, setConsoleErrorCount] = useState<number>(0)
+  const throttleTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current)
+      }
+    }
+  }, [])
 
   /**
    * True while the address bar holds something you typed rather than the page's
@@ -361,6 +376,29 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
       }
     }
 
+    const scheduleCountSync = (): void => {
+      if (throttleTimerRef.current !== null) return
+      throttleTimerRef.current = window.setTimeout(() => {
+        throttleTimerRef.current = null
+        setConsoleErrorCount(errorCount(consoleEntriesRef.current))
+      }, 250)
+    }
+
+    const onConsoleMessage = (e: Event): void => {
+      const cm = e as WebviewConsoleMessageEvent
+      const raw = cm.level
+      const level = (raw >= 0 && raw <= 3 ? raw : 1) as 0 | 1 | 2 | 3
+      const entry: ConsoleEntry = {
+        level,
+        message: cm.message || '',
+        source: cm.sourceId || '',
+        line: cm.line || 0,
+        at: Date.now()
+      }
+      consoleEntriesRef.current = pushEntry(consoleEntriesRef.current, entry)
+      scheduleCountSync()
+    }
+
     const onStart = (): void => {
       setLoading(true)
       setError(null)
@@ -376,6 +414,21 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
       // mid-address would otherwise yank the field out from under you.
       if (!editing.current) setAddress(url)
       setFindHits({ active: 0, total: 0 })
+      // Main-frame navigation resets console collection and error count
+      if (throttleTimerRef.current !== null) {
+        window.clearTimeout(throttleTimerRef.current)
+        throttleTimerRef.current = null
+      }
+      consoleEntriesRef.current = []
+      setConsoleErrorCount(0)
+      sync()
+    }
+    const onNavigateInPage = (e: Event): void => {
+      const url = (e as NavEvent).url
+      setCurrent(url)
+      if (!editing.current) setAddress(url)
+      setFindHits({ active: 0, total: 0 })
+      // In-page navigation does not reset console collection
       sync()
     }
     const onTitle = (e: Event): void => setTitle((e as TitleEvent).title)
@@ -412,17 +465,29 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
       // like. Reporting it would flash an error on perfectly normal navigation.
       if (fail.errorCode === -3) return
       setLoading(false)
-      setError(
+      const desc =
         fail.errorCode === -102 || fail.errorCode === -105
           ? `Nothing is answering at ${fail.validatedURL}. Is the dev server running?`
           : `${fail.errorDescription || 'Could not load that page'} (${fail.errorCode})`
-      )
+      setError(desc)
+
+      // Synthetic failed-load entry in console buffer
+      const synthetic: ConsoleEntry = {
+        level: 3,
+        message: `Failed to load ${fail.validatedURL}: ${fail.errorDescription || 'Could not load that page'} (${fail.errorCode})`,
+        source: fail.validatedURL || '',
+        line: 0,
+        at: Date.now()
+      }
+      consoleEntriesRef.current = pushEntry(consoleEntriesRef.current, synthetic)
+      setConsoleErrorCount(errorCount(consoleEntriesRef.current))
     }
 
+    el.addEventListener('console-message', onConsoleMessage)
     el.addEventListener('did-start-loading', onStart)
     el.addEventListener('did-stop-loading', onStop)
     el.addEventListener('did-navigate', onNavigate)
-    el.addEventListener('did-navigate-in-page', onNavigate)
+    el.addEventListener('did-navigate-in-page', onNavigateInPage)
     el.addEventListener('did-fail-load', onFail)
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('update-target-url', onTarget)
@@ -430,10 +495,11 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
     el.addEventListener('dom-ready', onReady)
     el.addEventListener('context-menu', onContext)
     return () => {
+      el.removeEventListener('console-message', onConsoleMessage)
       el.removeEventListener('did-start-loading', onStart)
       el.removeEventListener('did-stop-loading', onStop)
       el.removeEventListener('did-navigate', onNavigate)
-      el.removeEventListener('did-navigate-in-page', onNavigate)
+      el.removeEventListener('did-navigate-in-page', onNavigateInPage)
       el.removeEventListener('did-fail-load', onFail)
       el.removeEventListener('page-title-updated', onTitle)
       el.removeEventListener('update-target-url', onTarget)
@@ -455,7 +521,7 @@ export function BrowserPanel({ visible }: { visible: boolean }): React.JSX.Eleme
   const shown = focused ? address : prettyUrl(address)
 
   return (
-    <div className="browser" ref={rootRef}>
+    <div className="browser" data-errors={consoleErrorCount} ref={rootRef}>
       {/* What a tab strip would have told you, in a panel that has no room for
           one: which page you are actually looking at. */}
       <div className="browser-title" title={current}>
