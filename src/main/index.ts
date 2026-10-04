@@ -700,6 +700,9 @@ function registerIpc(): void {
 
   // ---- preview browser -------------------------------------------------
   ipcMain.handle('browser:devPorts', () => browser.devPorts())
+  ipcMain.handle('browser:capture', (_e, webContentsId: number) =>
+    browser.captureWebview(webContentsId, mainWindow)
+  )
 
   // ---- voice dictation -------------------------------------------------
   ipcMain.handle('stt:catalog', () => STT_MODELS)
