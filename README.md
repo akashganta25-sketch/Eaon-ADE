@@ -246,6 +246,10 @@ box on purpose: typing into one would quietly post your keystrokes to a search
 engine, in an app that otherwise talks to nobody. The page keeps its scroll,
 its forms and its route when you switch tabs away and back.
 
+**Preview → agent (screenshot & console errors)** — hand visual state and runtime failures straight to your agents:
+- **Screenshot to agent** (camera icon) — captures the active preview webview, downscales it cleanly (≤1600px width/height) to preserve aspect ratio, stores it safely in temporary app storage, and types the escaped file path directly into the active terminal's prompt without pressing Enter so you can review or append instructions. Works with both shells and agents.
+- **Console errors badge & popover** — intercepts page runtime console errors (and optional warnings) and highlights an active error badge in the toolbar. Click the badge to open the inspector with full verbatim preview, deduplicated error groups with count `(×N)`, timestamp ordering, and dynamic Markdown fence sizing. Click **Send to agent** to paste the sanitized, bracketed-paste-safe error report directly into your active agent's prompt without auto-execution. Guarded against plain shell targets.
+
 ## Keyboard
 
 | | |
