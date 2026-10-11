@@ -69,6 +69,18 @@ export function App(): React.JSX.Element {
     void hydrate()
   }, [hydrate])
 
+  // The last change before quitting, closing the window or reloading must
+  // reach disk; the save debounce would otherwise still be holding it.
+  useEffect(() => {
+    const flush = (): void => useStore.getState().flushPersist()
+    const off = window.eaon.state.onFlushRequest(flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      off()
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [])
+
   // Daily automations. Nothing fires until their time comes round while the
   // app is actually watching — see useAutomationSchedule.
   useAutomationSchedule()
@@ -177,8 +189,8 @@ export function App(): React.JSX.Element {
     )
 
     const offData = window.eaon.pty.onData((paneId, data) => terminals.receive(paneId, data))
-    const offExit = window.eaon.pty.onExit((paneId, code, signal, requested) =>
-      terminals.markExited(paneId, code, signal, requested)
+    const offExit = window.eaon.pty.onExit((paneId, code, signal, requested, token) =>
+      terminals.markExited(paneId, code, signal, requested, token)
     )
     return () => {
       offData()

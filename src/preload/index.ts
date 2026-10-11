@@ -58,7 +58,7 @@ const api = {
   pty: {
     spawn: (
       req: SpawnRequest
-    ): Promise<{ ok: boolean; error?: string; reattached?: boolean }> =>
+    ): Promise<{ ok: boolean; error?: string; reattached?: boolean; token?: number }> =>
       ipcRenderer.invoke('pty:spawn', req),
     write: (paneId: string, data: string): void => ipcRenderer.send('pty:write', paneId, data),
     resize: (paneId: string, cols: number, rows: number): void =>
@@ -79,12 +79,12 @@ const api = {
      * simply finished, and the pane went quiet with nothing to show.
      */
     onExit: (
-      cb: (paneId: string, exitCode: number, signal?: number, requested?: boolean) => void
+      cb: (paneId: string, exitCode: number, signal?: number, requested?: boolean, token?: number) => void
     ): (() => void) => {
       const handler = (
         _e: unknown,
-        p: { paneId: string; exitCode: number; signal?: number; requested?: boolean }
-      ): void => cb(p.paneId, p.exitCode, p.signal, p.requested)
+        p: { paneId: string; exitCode: number; signal?: number; requested?: boolean; token?: number }
+      ): void => cb(p.paneId, p.exitCode, p.signal, p.requested, p.token)
       ipcRenderer.on('pty:exit', handler)
       return () => ipcRenderer.removeListener('pty:exit', handler)
     }
@@ -104,7 +104,24 @@ const api = {
     load: (): Promise<PersistedState> => ipcRenderer.invoke('state:load'),
     save: (next: PersistedState): void => ipcRenderer.send('state:save', next),
     reset: (): Promise<PersistedState> => ipcRenderer.invoke('state:reset'),
-    path: (): Promise<string> => ipcRenderer.invoke('state:path')
+    path: (): Promise<string> => ipcRenderer.invoke('state:path'),
+    /**
+     * The main process is about to quit and wants the latest state first.
+     * The callback saves synchronously (state:save is a plain send), and the
+     * acknowledgement goes down the same channel behind it, so by the time
+     * main reads the ack the save has already arrived.
+     */
+    onFlushRequest: (cb: () => void): (() => void) => {
+      const handler = (): void => {
+        try {
+          cb()
+        } finally {
+          ipcRenderer.send('state:flushed')
+        }
+      }
+      ipcRenderer.on('state:flush', handler)
+      return () => ipcRenderer.removeListener('state:flush', handler)
+    }
   },
 
   fs: {

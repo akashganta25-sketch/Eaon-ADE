@@ -110,7 +110,19 @@ function recordCrash(message: string): void {
 
 const APP_NAME = app.isPackaged ? 'Eaon ADE' : 'Eaon ADE (dev)'
 app.setName(APP_NAME)
-app.setPath('userData', path.join(app.getPath('appData'), APP_NAME))
+/*
+ * EAON_USER_DATA_DIR exists for the automated runtime checks
+ * (scripts/e2e-app.mjs): they drive a real instance of the app and must never
+ * read or write anybody's real workspaces while doing it. Unset — which is
+ * every normal launch — the folder is exactly what it always was.
+ */
+const USER_DATA_OVERRIDE = process.env.EAON_USER_DATA_DIR?.trim()
+app.setPath(
+  'userData',
+  USER_DATA_OVERRIDE
+    ? path.resolve(USER_DATA_OVERRIDE)
+    : path.join(app.getPath('appData'), APP_NAME)
+)
 
 // Each terminal draws on its own GPU context. The browser default caps live
 // contexts at 16 and silently drops the oldest past that, which would blank a
@@ -932,6 +944,32 @@ app.on('child-process-gone', (_e, details) => {
 let quitting = false
 
 /**
+ * Asks the renderer to send its state now and waits for it, briefly.
+ *
+ * The renderer replies with a `state:save` followed by `state:flushed` on the
+ * same channel, so the save has been handled by the time the ack arrives. No
+ * window, or one that never answers, costs at most `timeoutMs`.
+ */
+function requestRendererFlush(timeoutMs: number): Promise<void> {
+  const wc = mainWindow?.webContents
+  if (!wc || wc.isDestroyed()) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer)
+      ipcMain.removeListener('state:flushed', done)
+      resolve()
+    }
+    const timer = setTimeout(done, timeoutMs)
+    ipcMain.on('state:flushed', done)
+    try {
+      wc.send('state:flush')
+    } catch {
+      done()
+    }
+  })
+}
+
+/**
  * Stops everything the app owns, then leaves without unwinding Node.
  *
  * The order matters. `ptys.shutdown()` waits for every shell to be reaped
@@ -962,6 +1000,13 @@ async function shutdownAndExit(): Promise<void> {
   try {
     // Nobody wants the app to carry on talking after they have closed it.
     speech.stop()
+  } catch {
+    /* nothing here is worth blocking a quit */
+  }
+  try {
+    // The renderer holds the newest state behind a save debounce; ask for it
+    // before writing, or the last change made before quitting is lost.
+    await requestRendererFlush(500)
   } catch {
     /* nothing here is worth blocking a quit */
   }

@@ -285,7 +285,7 @@ export class PtyManager {
     this.extraEnv = fn
   }
 
-  spawn(req: SpawnRequest): { ok: boolean; error?: string; reattached?: boolean } {
+  spawn(req: SpawnRequest): { ok: boolean; error?: string; reattached?: boolean; token?: number } {
     const remoteHost = req.host ?? null
     const cwd = req.cwd && req.cwd.length ? req.cwd : os.homedir()
     const hostKey = remoteHost ? `${remoteHost.user ?? ''}@${remoteHost.hostname}` : ''
@@ -312,7 +312,7 @@ export class PtyManager {
       } catch {
         /* the shell died between the check and the resize; fall through next time */
       }
-      return { ok: true, reattached: true }
+      return { ok: true, reattached: true, token: existing.token }
     }
 
     this.kill(req.paneId)
@@ -424,8 +424,18 @@ export class PtyManager {
           const tail = session.buffer.join('')
           session.buffer.length = 0
           session.buffered = 0
-          if (tail) this.emit('pty:data', { paneId: req.paneId, data: tail })
-          this.emit('pty:exit', { paneId: req.paneId, exitCode, signal, requested })
+          const superseded =
+            this.sessions.has(req.paneId) && this.sessions.get(req.paneId)?.token !== session.token
+          if (!superseded) {
+            if (tail) this.emit('pty:data', { paneId: req.paneId, data: tail })
+            this.emit('pty:exit', {
+              paneId: req.paneId,
+              exitCode,
+              signal,
+              requested,
+              token: session.token
+            })
+          }
         } catch {
           /* never let this reach node-pty's thread-safe function */
         } finally {
@@ -440,7 +450,7 @@ export class PtyManager {
       // Fallback for shells that print nothing at all before their prompt.
       if (session.pendingCommand) this.scheduleCommand(session, session.remote ? 6000 : 2500)
 
-      return { ok: true }
+      return { ok: true, token: session.token }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[eaon] pty spawn failed for ${req.paneId} in ${cwd}:`, message)

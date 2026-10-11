@@ -142,6 +142,8 @@ interface AppState {
 
   hydrate: () => Promise<void>
   persist: () => void
+  /** Writes the persisted snapshot immediately, skipping the debounce. */
+  flushPersist: () => void
 
   setUpdate: (u: UpdateState) => void
   dismissUpdate: (version: string | null) => void
@@ -524,25 +526,43 @@ export const useStore = create<AppState>((set, get) => ({
 
   persist() {
     if (persistTimer !== null) window.clearTimeout(persistTimer)
-    persistTimer = window.setTimeout(() => {
-      const s = get()
-      const snapshot: PersistedState = {
-        version: 1,
-        workspaces: s.workspaces,
-        folders: s.folders,
-        activeWorkspaceId: s.activeWorkspaceId,
-        presets: s.presets,
-        recents: s.recents,
-        settings: s.settings,
-        board: s.board,
-        vault: s.vault,
-        dismissedResume: s.dismissedResume,
-        closedTabs: s.closedTabs,
-        trials: s.trials,
-        automations: s.automations
-      }
-      window.eaon.state.save(snapshot)
-    }, 400)
+    persistTimer = window.setTimeout(() => get().flushPersist(), 400)
+  },
+
+  /*
+   * Writes the snapshot now rather than on the debounce.
+   *
+   * The debounce is right while somebody is working and wrong at the one
+   * moment that matters: rename a workspace and quit straight away, and the
+   * rename was still sitting in the timer when the window went. Called on the
+   * way out — the main process asks for it before quitting, and the page asks
+   * for it itself when it is closed or reloaded.
+   */
+  flushPersist() {
+    if (persistTimer !== null) {
+      window.clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    const s = get()
+    // Nothing has been read yet, so there is nothing of ours to write — and
+    // writing the empty placeholder would replace what is on disk.
+    if (!s.ready) return
+    const snapshot: PersistedState = {
+      version: 1,
+      workspaces: s.workspaces,
+      folders: s.folders,
+      activeWorkspaceId: s.activeWorkspaceId,
+      presets: s.presets,
+      recents: s.recents,
+      settings: s.settings,
+      board: s.board,
+      vault: s.vault,
+      dismissedResume: s.dismissedResume,
+      closedTabs: s.closedTabs,
+      trials: s.trials,
+      automations: s.automations
+    }
+    window.eaon.state.save(snapshot)
   },
 
   openWizard(mode, preset) {
@@ -1523,4 +1543,8 @@ export const useStore = create<AppState>((set, get) => ({
 /** Convenience selector — the workspace currently shown in the stage. */
 export function useActiveWorkspace(): Workspace | null {
   return useStore((s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId) ?? null)
+}
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { useStore: typeof useStore }).useStore = useStore
 }

@@ -9,6 +9,7 @@ import {
   type InstalledModel,
   type SttModelDef
 } from '../../shared/stt'
+import { isolatedProfile } from '../profile'
 
 const HF = 'https://huggingface.co'
 
@@ -37,6 +38,8 @@ const LEGACY_APP_DIRS = ['ADE', 'Eaon']
  * directory entry rather than a gigabyte of I/O.
  */
 export function migrateFromPreviousName(): void {
+  // A test profile must never move a real install's models into itself.
+  if (isolatedProfile()) return
   try {
     const target = modelsDir()
     if (fs.existsSync(target)) return

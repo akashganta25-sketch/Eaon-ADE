@@ -252,6 +252,7 @@ interface Runtime {
   lastError: string | null
   /** How many times we have tried to get this pane back onto the GPU. */
   renderRetries: number
+  sessionToken?: number
   /**
    * WebGL is not available at all here, so stop asking. Set only when building
    * the addon throws — not when a context is released on purpose, which is a
@@ -852,6 +853,7 @@ class TerminalRegistry {
       this.events?.onStatus(paneId, 'exited')
       return
     }
+    rt.sessionToken = res.token
     rt.lastError = null
     /*
      * The shell was already running and we were given it back, rather than a
@@ -920,9 +922,21 @@ class TerminalRegistry {
     }
   }
 
-  markExited(paneId: string, code: number, signal?: number, requested?: boolean): void {
+  markExited(
+    paneId: string,
+    code: number,
+    signal?: number,
+    requested?: boolean,
+    token?: number
+  ): void {
     const rt = this.panes.get(paneId)
     if (!rt) return
+    // A fresh terminal instance created during restart that hasn't spawned yet
+    // must ignore exits from an older killed session.
+    if (!rt.spawned) return
+    // If a session token was attached, only accept exits matching the active session.
+    if (token !== undefined && rt.sessionToken !== undefined && token !== rt.sessionToken) return
+
     rt.spawned = false
     // A shell that has gone is running nothing, and the ticker would otherwise
     // take a beat to notice.
@@ -983,8 +997,6 @@ class TerminalRegistry {
      * pane, when there is a pane on screen to paint.
      */
     window.eaon.pty.kill(paneId)
-    const rt = this.panes.get(paneId)
-    if (rt) rt.spawned = false
   }
 
   /** Called when a pane gets focus — clears a pending attention flag. */
