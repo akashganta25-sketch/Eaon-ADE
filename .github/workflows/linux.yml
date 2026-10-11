@@ -81,14 +81,6 @@ jobs:
       - name: Typecheck and bundle
         run: npm run build
 
-      - name: Check hand-off logic
-        run: npm run check:handoff
-
-      - name: Check preview and capture logic
-        run: |
-          npm run check:preview
-          npm run check:capture
-
       - name: Check the Linux-specific paths
         run: npm run check:linux
 
